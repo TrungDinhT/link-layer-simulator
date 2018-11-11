@@ -1,0 +1,21 @@
+#!/usr/bin/env python2.7
+
+import numpy as np
+from ABP import *
+
+H = 54 # bits
+l = 1500 # bits
+delta_rate = np.array([2.5, 5, 7.5, 10, 12.5]) # delta_rate*tau = delta = timeout
+C = 5*1e6*8 # 5MB/s
+taus = [0.01, 0.5] # s
+BERs = [0]#, 1e-4, 1e-5]
+duration = 5000
+
+statsManager = StatsManager(Protocol.ABP, duration)
+
+for tau in taus:
+    for timeout in delta_rate*tau:
+        for BER in BERs:
+            statsManager.set_params(timeout, tau, BER)
+            simulator = SimulatorABP(timeout, H, l, C, tau, BER, duration, statsManager)
+            simulator.run()
