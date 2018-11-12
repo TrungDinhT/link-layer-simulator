@@ -1,1 +1,6 @@
-#!/usr/bin/env python2.7 
+#!/usr/bin/env python2.7
+
+from run_simulation import simulate
+from ABP import *
+
+simulate(Protocol.GBN)
