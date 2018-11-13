@@ -12,11 +12,18 @@ class PacketStatus(Enum):
     
 
 
-class PacketType(Enum):
+class EventType(Enum):
 
     ACK = 0
     TIMEOUT = 1
 
+
+
+class EventStatus(Enum):
+    
+    TIMEOUT = 0
+    ACK_ERROR = 1
+    ACK = 2
 
 
 class Protocol(Enum):
@@ -40,7 +47,7 @@ class Packet:
 
 class BufferBlock:
 
-    def __init__(self, packet=None):
+    def __init__(self, packet):
         self.data = packet
         self.next = None
 
@@ -49,9 +56,53 @@ class BufferBlock:
 # Buffer in case of GBN should be implemented as a circular linked list
 class Buffer:
 
-    def __init__(self, bufSize, bufferBlock=None):
-        self.head = bufferBlock
+    def __init__(self, bufSize, blockSize):
         self.bufSize = bufSize
+        self.head = BufferBlock(Packet(blockSize, 0))
+        self.currentBlock = self.head
+        cur = self.currentBlock
+        prev = None
+        for i in range(1, bufSize):
+            cur.next = BufferBlock(Packet(blockSize, i))
+            prev = cur
+            cur = cur.next
+        self.tail = prev
+        self.tail.next = BufferBlock(Packet(blockSize, bufSize))
+        self.tail.next.next = self.head
+
+    def cur_block(self):
+        return self.current_block
+
+    def slide_window(self, n_steps):
+        for i in range(0, n_steps):
+            self.head = self.head.next
+            self.tail = self.tail.next
+
+    def slide_to_index(self, index):
+        cur_index = block_index(self.current_block)
+        if index < cur_index:
+            slide_window(index)
+        else:
+            print 'Error: index to slide to greater than current block index'
+            exit(1)
+
+    def packet(self):
+        if self.currentBlock.next == self.head:
+            return None
+        else:
+            packet = self.currentBlock
+            self.currentBlock = self.currentBlock.next
+            return packet
+        
+    def block_index(self, pointer_block):
+        blk = self.head
+        index = 0
+        while(blk != pointer_block):
+            blk = blk.next
+            index += 1
+        if index > bufSize:
+            index = None
+        return index
 
 
 
@@ -60,7 +111,7 @@ class Event:
     def __init__(self, type, time, SN=None, errorFlag = None):
         self.type = type
         self.time = time
-        if type == PacketType.ACK:
+        if type == EventType.ACK:
             self.SN = SN
             self.errorFlag = errorFlag
         self.next = None
@@ -103,7 +154,7 @@ class EventScheduler: # EventScheduler
         prev = None
         timeout = None
         while elm is not None:
-            if elm.type == PacketType.TIMEOUT:
+            if elm.type == EventType.TIMEOUT:
                 if prev is None: # timeout event is at the head, so purge it like doing dequeue()
                     timeout = self.dequeue()
                 else:
@@ -224,12 +275,20 @@ class Simulator(object):
         event = None
         time1, SN, errorFlag = self.channelSide.handle_packet(time, SN, L)
         self.eventScheduler.purge_time_out()
-        self.eventScheduler.register_event(Event(PacketType.TIMEOUT, time + self.sender.get_timeout()))
+        self.eventScheduler.register_event(Event(EventType.TIMEOUT, time + self.sender.get_timeout()))
         if errorFlag != PacketStatus.LOSS:
             time2, RN, H = self.receiver.process_packet(time1, SN, errorFlag)
             time3, RN, errorFlag = self.channelSide.handle_packet(time2, RN, H)
             if errorFlag != PacketStatus.LOSS: #Here we create ACK event to return if there is an ACK that can reach sender later
                 self.statsManager.update_stats(L - H, time3)
-                event = Event(PacketType.ACK, time3, RN, errorFlag)
+                event = Event(EventType.ACK, time3, RN, errorFlag)
         return event # None or an ack
+    
+    def transmission_process(self):
+        time, SN, L = self.sender.send_packet()
+        ack = self.SEND(time, SN, L)
+        if ack is not None:
+            self.eventScheduler.register_event(ack)
+        status = self.sender.read_event()()
+        return status
 
