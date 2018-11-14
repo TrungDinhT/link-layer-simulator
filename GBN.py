@@ -30,11 +30,12 @@ class Sender(EndPoint):
             time += packet.size() / self.C
         return time
 
-    def prepare(self, timeout):
+    def prepare(self):
         self.currentPacketIndex = 0
         self.buf.reset_current_block()
         self.scheduledPacket = self.buf.packet()
         self.SN = self.scheduledPacket.sequence_number()
+        self.next_expected_packets()
         self.eventScheduler.purge_time_out()
         self.eventScheduler.register_event(Event(EventType.TIMEOUT, self.sending_time(self.scheduledPacket) + self.timeout))
 
@@ -91,6 +92,7 @@ class SimulatorGBN(Simulator):
     def run(self):
         duration = self.duration
         while(duration):
+            #print 'duratoin'
             self.sender.prepare()
             for i in range(0, maxSN):
                 status = self.transmission_process()
@@ -106,6 +108,8 @@ class SimulatorGBN(Simulator):
                         self.sender.update_current_time(currentEvent.time)
                 elif status == EventStatus.ACK:
                     duration -= 1
+                    if duration == 0:
+                        break
                 else:
                     print 'Error: status not recognized'
                     exit(1)

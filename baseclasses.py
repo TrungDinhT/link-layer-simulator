@@ -66,16 +66,14 @@ class Buffer:
     def __init__(self, bufSize, blockSize):
         self.bufSize = bufSize
         self.head = BufferBlock(Packet(blockSize, 0))
-        self.currentBlock = self.head
-        cur = self.currentBlock
-        prev = None
+        cur = self.head
         for i in range(1, bufSize):
             cur.next = BufferBlock(Packet(blockSize, i))
-            prev = cur
             cur = cur.next
-        self.tail = prev
+        self.tail = cur
         self.tail.next = BufferBlock(Packet(blockSize, bufSize))
         self.tail.next.next = self.head
+        self.currentBlock = self.head
 
     def size(self):
         return self.bufSize
@@ -96,7 +94,7 @@ class Buffer:
         else:
             packet = self.currentBlock
             self.currentBlock = self.currentBlock.next
-            return packet
+            return packet.data
         
     def block_index(self, pointer_block):
         blk = self.head

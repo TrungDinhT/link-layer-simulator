@@ -1,5 +1,6 @@
 import numpy as np
 from ABP import SimulatorABP, SimulatorABP_NAK
+from GBN import SimulatorGBN
 from baseclasses import StatsManager, Protocol
 
 
@@ -21,7 +22,7 @@ def simulate(protocol):
     elif protocol == Protocol.ABP_NAK:
         simulator = SimulatorABP_NAK(duration, statsManager)
     elif protocol == Protocol.GBN:
-        print 'GBN'
+        simulator = SimulatorGBN(duration, statsManager)
     else:
         print 'unknown protocol'
         exit(1)
