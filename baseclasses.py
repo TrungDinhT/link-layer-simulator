@@ -24,6 +24,7 @@ class EventStatus(Enum):
     TIMEOUT = 0
     ACK_ERROR = 1
     ACK = 2
+    NO_EVENT = 3
 
 
 class Protocol(Enum):
@@ -40,8 +41,14 @@ class Packet:
         self.packetSize = pktSize
         self.SN = SN
 
+    def size(self):
+        return self.packetSize
+
+    def sequence_number(self):
+        return self.SN
+
     def properties(self):
-        return self.packetSize, self.SN
+        return self.SN, self.packetSize
 
 
 
@@ -70,21 +77,18 @@ class Buffer:
         self.tail.next = BufferBlock(Packet(blockSize, bufSize))
         self.tail.next.next = self.head
 
-    def cur_block(self):
-        return self.current_block
+    def size(self):
+        return self.bufSize
 
-    def slide_window(self, n_steps):
-        for i in range(0, n_steps):
-            self.head = self.head.next
-            self.tail = self.tail.next
+    def reset_current_block(self):
+        self.currentBlock = self.head
+
 
     def slide_to_index(self, index):
-        cur_index = block_index(self.current_block)
-        if index < cur_index:
-            slide_window(index)
-        else:
-            print 'Error: index to slide to greater than current block index'
-            exit(1)
+        for i in range(0, index):
+            self.head = self.head.next
+            self.tail = self.tail.next
+        self.currentBlock = self.head
 
     def packet(self):
         if self.currentBlock.next == self.head:
@@ -142,6 +146,9 @@ class EventScheduler: # EventScheduler
             if event.next is None: # event is not inserted in the queue yet, because the tail has been reached already
                     prev.next = event
     
+    def next_event(self):
+        return self.head
+
     def dequeue(self):
         event = self.head
         if event is not None:
@@ -274,8 +281,6 @@ class Simulator(object):
     def SEND(self, time, SN, L):
         event = None
         time1, SN, errorFlag = self.channelSide.handle_packet(time, SN, L)
-        self.eventScheduler.purge_time_out()
-        self.eventScheduler.register_event(Event(EventType.TIMEOUT, time + self.sender.get_timeout()))
         if errorFlag != PacketStatus.LOSS:
             time2, RN, H = self.receiver.process_packet(time1, SN, errorFlag)
             time3, RN, errorFlag = self.channelSide.handle_packet(time2, RN, H)
@@ -289,6 +294,6 @@ class Simulator(object):
         ack = self.SEND(time, SN, L)
         if ack is not None:
             self.eventScheduler.register_event(ack)
-        status = self.sender.read_event()()
+        status = self.sender.read_event()
         return status
 

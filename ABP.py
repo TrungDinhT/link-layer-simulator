@@ -23,9 +23,11 @@ class Sender(EndPoint):
 
     def send_packet(self):
         self.currentTime = self.currentTime + self.packetSize / self.C
+        self.eventScheduler.purge_time_out()
+        self.eventScheduler.register_event(Event(EventType.TIMEOUT, time + self.timeout))
         return self.currentTime, self.SN, self.packetSize
 
-    def read_event()(self):
+    def read_event(self):
         currentEvent = self.eventScheduler.dequeue()
         self.currentTime = currentEvent.time
         if currentEvent.type == EventType.TIMEOUT:

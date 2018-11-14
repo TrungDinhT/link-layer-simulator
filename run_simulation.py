@@ -10,7 +10,7 @@ def simulate(protocol):
     l = 1500*8 # bits
     delta_rate = np.array([2.5, 5, 7.5, 10, 12.5]) # delta_rate*tau = delta = timeout
     C = 5*1e6*8 # 5MB/s
-    taus = np.array([0.01, 0.5]) # seconds
+    taus = np.array([0.01, 0.5]) / 2 # seconds
     BERs = np.array([0, 1e-4, 1e-5])
     duration = 10000
 
