@@ -7,10 +7,10 @@ from baseclasses import StatsManager, Protocol
 def simulate(protocol):
     
     # Input parameters
-    H = 54*8 # bits
-    l = 1500*8 # bits
+    H = 432 # bits = 54 bytes
+    l = 12000 # bits = 1500 bytes
     delta_rate = np.array([2.5, 5, 7.5, 10, 12.5]) # delta_rate*tau = delta = timeout
-    C = 5*1e6*8 # 5MB/s
+    C = 5000000 # 5MB/s
     taus = np.array([0.01, 0.5]) / 2 # seconds
     BERs = np.array([0, 1e-4, 1e-5])
     duration = 10000
@@ -18,11 +18,14 @@ def simulate(protocol):
     # Init statistic manager and simulator
     statsManager = StatsManager(protocol, delta_rate, taus.shape[0]*BERs.shape[0])
     if protocol == Protocol.ABP:
-        simulator = SimulatorABP(duration, statsManager)
+        maxSN = 2
+        simulator = SimulatorABP(H, l, C, maxSN, duration, statsManager)
     elif protocol == Protocol.ABP_NAK:
-        simulator = SimulatorABP_NAK(duration, statsManager)
+        maxSN = 2
+        simulator = SimulatorABP_NAK(H, l, C, maxSN, duration, statsManager)
     elif protocol == Protocol.GBN:
-        simulator = SimulatorGBN(duration, statsManager)
+        maxSN = 4
+        simulator = SimulatorGBN(H, l, C, maxSN, duration, statsManager)
     else:
         print 'unknown protocol'
         exit(1)
@@ -36,7 +39,7 @@ def simulate(protocol):
         for timeout in delta_rate*tau:
             for BER in BERs:
                 statsManager.reset()
-                simulator.set_params(timeout, H, l, C, tau, BER)
+                simulator.set_params(timeout, tau, BER)
                 simulator.run()
                 statsManager.record_stats(i, j)
                 j = j + 1

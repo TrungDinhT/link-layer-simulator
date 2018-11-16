@@ -1,6 +1,6 @@
 #!/usr/bin/env python2.7
 
-from run_simulation import simulate
+from simulation import simulate
 from baseclasses import Protocol
 
 simulate(Protocol.ABP_NAK)

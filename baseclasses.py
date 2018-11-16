@@ -65,6 +65,8 @@ class Buffer:
 
     def __init__(self, bufSize, blockSize):
         self.bufSize = bufSize
+
+        # Init blocks in buffer, we keep head and tail to limit the length of block
         self.head = BufferBlock(Packet(blockSize, 0))
         cur = self.head
         for i in range(1, bufSize):
@@ -73,12 +75,23 @@ class Buffer:
         self.tail = cur
         self.tail.next = BufferBlock(Packet(blockSize, bufSize))
         self.tail.next.next = self.head
+
+        # Set current block to first block of buffer
         self.currentBlock = self.head
+
 
     def size(self):
         return self.bufSize
 
+
     def reset_current_block(self):
+        self.currentBlock = self.head
+
+
+    def reset_buffer(self):
+        while(self.head.data.sequence_number() != 0):
+            self.head = self.head.next
+            self.tail = self.tail.next
         self.currentBlock = self.head
 
 
@@ -88,6 +101,7 @@ class Buffer:
             self.tail = self.tail.next
         self.currentBlock = self.head
 
+
     def packet(self):
         if self.currentBlock.next == self.head:
             return None
@@ -95,6 +109,7 @@ class Buffer:
             packet = self.currentBlock
             self.currentBlock = self.currentBlock.next
             return packet.data
+
         
     def block_index(self, pointer_block):
         blk = self.head
@@ -124,10 +139,15 @@ class EventScheduler: # EventScheduler
     
     def __init__(self, event=None):
         self.head = event
+
         
     def register_event(self, event):
         elm = self.head
-        if elm is None: # we have an empty list now
+
+        # If the list is empty, we add event to the head of the list
+        # Otherwise we loop through all event to find where we can put new event (in increasing time order)
+        # If we don't find any element happening later than the event, we put it to the tail
+        if elm is None:
             self.head = event
         else:
             prev = None
@@ -141,18 +161,23 @@ class EventScheduler: # EventScheduler
                     return
                 prev = elm
                 elm = elm.next
-            if event.next is None: # event is not inserted in the queue yet, because the tail has been reached already
+
+            # Here we reach the end of the list => we add event to the tail of the list
+            if event.next is None: 
                     prev.next = event
+
     
     def next_event(self):
         return self.head
+
 
     def dequeue(self):
         event = self.head
         if event is not None:
             self.head = self.head.next
-            event.next = None # Totally cut off relation between event and the queue
+            event.next = None
         return event
+
     
     def purge_time_out(self):
         elm = self.head
@@ -160,7 +185,7 @@ class EventScheduler: # EventScheduler
         timeout = None
         while elm is not None:
             if elm.type == EventType.TIMEOUT:
-                if prev is None: # timeout event is at the head, so purge it like doing dequeue()
+                if prev is None: # timeout event is at the head of the list
                     timeout = self.dequeue()
                 else:
                     timeout = elm
@@ -174,15 +199,24 @@ class EventScheduler: # EventScheduler
 
 class ChannelSide:
 
-    def __init__(self, C, tau, BER):
-        self.tau = tau
-        self.BER = BER
+    def __init__(self, C):
         self.C = C
 
+
+    def set_params(self, tau, BER):
+        self.tau = tau
+        self.BER = BER
+
+
     def handle_packet(self, time, SN, L):
-        if L is None: #No packet is sent here
-            return None, None, PacketStatus.LOSS 
+        # No packet is sent here
+        if L is None:
+            return None, None, PacketStatus.LOSS
+
+        # We increase the time by propagation delay
         time = time + self.tau
+
+        # Here we try to simulate channel with error probabilities BER per bit
         errors = np.random.choice([0,1], L, p=[self.BER, 1-self.BER])
         numberOfErrors = np.sum(errors == 0)
         errorFlag = PacketStatus.NOERROR
@@ -197,11 +231,11 @@ class ChannelSide:
 
 class EndPoint(object):
 
-    def __init__(self, channelSpeed, maxSN, eventScheduler):
+    def __init__(self, C, maxSN, eventScheduler):
         self.currentTime = 0
         self.eventScheduler = eventScheduler
-        self.C = channelSpeed
         self.maxSN = maxSN
+        self.C = C
 
 
 
@@ -212,52 +246,69 @@ class Receiver(EndPoint):
         self.nextExpectedPacket = 0
         self.ackPacketSize = H
 
+
     def process_packet(self, time, SN, errorFlag):
+        # If packet lost before coming to receiver, we send nothing assuming that we received nothing
         if errorFlag == PacketStatus.LOSS:
             return None, None, None
-        else:
-            self.currentTime = time + self.ackPacketSize / self.C
-            if errorFlag == PacketStatus.NOERROR and SN == self.nextExpectedPacket:
-                self.nextExpectedPacket = (self.nextExpectedPacket + 1) % self.maxSN
-            return self.currentTime, self.nextExpectedPacket, self.ackPacketSize
+        
+        # We update current time on receiver size to the moment it sent the ack away
+        self.currentTime = time + self.ackPacketSize / self.C
+        if errorFlag == PacketStatus.NOERROR and SN == self.nextExpectedPacket:
+            self.nextExpectedPacket = (self.nextExpectedPacket + 1) % self.maxSN
+        return self.currentTime, self.nextExpectedPacket, self.ackPacketSize
 
 
 
 class StatsManager:
 
-    output_dir = os.getcwd() + '/output/'
+    outputDir = os.getcwd() + '/output/'
 
     def __init__(self, protocol, delta_rate, n_cols):
-        self.throughput = 0
-        self.duration = 0 # real duration in seconds of the simulation
+        # Init 3 attributes for StatsManager class
+        ### totalDataSent -> all data successfully sent
+        self.totalDataSent = 0
+        ### duration -> the real amount of time needed to send all of those data
+        self.duration = 0 
+        ### stats -> save throughput for each cases of BER, delta/tau
         self.stats = np.empty([delta_rate.shape[0], n_cols + 1])
         for i in range(0, delta_rate.shape[0]):
             self.stats[i, 0] = delta_rate[i]
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
+
+        # Create output directory if not exist
+        if not os.path.exists(self.outputDir):
+            os.makedirs(self.outputDir)
+
+        # Create appropriate output file name for each protocol 
         if protocol == Protocol.ABP:
-            self.file_name = self.output_dir + 'ABP.csv'
+            self.fileName = self.outputDir + 'ABP.csv'
         elif protocol == Protocol.ABP_NAK:
-            self.file_name = self.output_dir + 'ABP_NAK.csv'
+            self.fileName = self.outputDir + 'ABP_NAK.csv'
         elif protocol == Protocol.GBN:
-            self.file_name = self.output_dir + 'GBN.csv'
+            self.fileName = self.outputDir + 'GBN.csv'
         else:
             print 'unknown protocol'
             exit(1)
 
+
     def reset(self):
-        self.throughput = 0
+        self.totalDataSent = 0
         self.duration = 1
 
+
     def update_stats(self, packetSize, currentTime):
-        self.throughput += packetSize
+        self.totalDataSent += packetSize
         self.duration = currentTime        
 
+
     def record_stats(self, row_index, col_index):
-        self.stats[row_index, col_index] = np.around(self.throughput / self.duration, decimals=3)
+        print 'totalDataSent: ' + str(self.totalDataSent)
+        print 'time: ' + str(self.duration)
+        self.stats[row_index, col_index] = np.around(self.totalDataSent / self.duration, decimals=3)
+
 
     def save_to_csv(self):
-        with open(self.file_name, 'w') as f:
+        with open(self.fileName, 'w') as f:
             for elm in self.stats:
                 f.write(','.join(elm.astype(str)) + '\n')
 
@@ -265,16 +316,18 @@ class StatsManager:
 
 class Simulator(object):
 
-    def __init__(self, duration, statsManager):
+    def __init__(self, H, l, C, maxSN, duration, statsManager):
         self.statsManager = statsManager
         self.eventScheduler = EventScheduler()
-        self.channelSide = None
-        self.receiver = None # Initialized differently for each type of simulator
-        self.sender = None # Initialized differently for each type of simulator
+        self.channelSide = ChannelSide(C)
+        self.receiver = Receiver(H, C, maxSN, self.eventScheduler)
+        self.sender = Sender(H, l, C, maxSN, self.eventScheduler, self.statsManager)
         self.duration = duration # number of packets to be delivered successfully
 
-    def set_params(self, C, tau, BER):
-        self.channelSide = ChannelSide(C, tau, BER)
+
+    def set_params(self, tau, BER):
+        self.channelSide.set_params(tau, BER)
+
 
     def SEND(self, time, SN, L):
         event = None
@@ -282,11 +335,11 @@ class Simulator(object):
         if errorFlag != PacketStatus.LOSS:
             time2, RN, H = self.receiver.process_packet(time1, SN, errorFlag)
             time3, RN, errorFlag = self.channelSide.handle_packet(time2, RN, H)
-            if errorFlag != PacketStatus.LOSS: #Here we create ACK event to return if there is an ACK that can reach sender later
-                self.statsManager.update_stats(L - H, time3)
+            if errorFlag != PacketStatus.LOSS:
                 event = Event(EventType.ACK, time3, RN, errorFlag)
         return event # None or an ack
-    
+
+
     def transmission_process(self):
         time, SN, L = self.sender.send_packet()
         ack = self.SEND(time, SN, L)
