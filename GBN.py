@@ -4,7 +4,7 @@ from baseclasses import *
 
 class Sender(EndPoint):
 
-    def __init__(self, timeout, H, l, C, maxSN, eventScheduler, statsManager):
+    def __init__(self, H, l, C, maxSN, eventScheduler, statsManager):
         super(Sender, self).__init__(C, maxSN, eventScheduler)
         self.statsManager = statsManager
         self.buf = Buffer(maxSN, H + l)
@@ -16,11 +16,15 @@ class Sender(EndPoint):
         self.nextExpectedPackets = [0] * maxSN
         self.dataSize = l
 
+
     def get_timeout(self):
         return self.timeout
 
+    def batch_size(self):
+        return self.maxSN
+
     def reset(self, timeout):
-        self.timeout = timeout 
+        self.timeout = timeout
         self.buf.reset_buffer() # Reset the buffer to initial state
         self.departureTime = [0] * self.maxSN
         self.currentPacketIndex = 0
@@ -113,10 +117,10 @@ class Sender(EndPoint):
         # When we have to process the event, first compare currentTime and next sending time
         # If they are equal, it means that we don't have any packet it the batch to send.
         # Therefore, update currentTime with even's time. The event can be an ack or a timeout.
-        if self.currentTime == nextSendingTime: 
+        if self.currentTime == nextSendingTime:
             self.currentTime = currentEvent.time
-
-        # Then we dequeue the event and inspect it
+        
+        # Dequeue event for inspection
         self.eventScheduler.dequeue()
 
         # Base on event's type, return appropriate status for simulator to handle it
@@ -126,17 +130,22 @@ class Sender(EndPoint):
         if currentEvent.type == EventType.ACK:
             if currentEvent.errorFlag == PacketStatus.ERROR or currentEvent.SN not in self.nextExpectedPackets:
                 return EventStatus.ACK_ERROR
-            else: 
+            else:
+                self.statsManager.update_stats(self.dataSize, self.currentTime)
                 index = (self.nextExpectedPackets.index(currentEvent.SN) + 1) % (self.maxSN + 1)
                 self.buf.slide_to_index(index)
-                self.prepare()
-                self.statsManager.update_stats(self.dataSize, self.currentTime)
                 return EventStatus.ACK # return ACK informs Simulator a successfully delivered packet
 
 
 
 class SimulatorGBN(Simulator):
-        
+
+    def __init__(self, H, l, C, maxSN, duration, statsManager):
+        super(SimulatorGBN, self).__init__(H, C, maxSN, duration, statsManager)
+        self.sender = Sender(H, l, C, maxSN, self.eventScheduler, self.statsManager)
+        self.receiver.setMaxSN(maxSN + 1)
+
+
     def set_params(self, timeout, tau, BER):
         super(SimulatorGBN, self).set_params(tau, BER)
         self.sender.reset(timeout)
@@ -149,10 +158,21 @@ class SimulatorGBN(Simulator):
             self.sender.prepare()
 
             # Each time we try to send at most maxSN packets
-            for i in range(0, maxSN):
+            for i in range(0, self.sender.batch_size()):
 
                 # This is the return from sender.read_event()
                 status = self.transmission_process()
+
+                # If it's a corrupted ACK: 
+                ### if that happens in the middle of sending, we pass to send next packet
+                ### if that happens for last packet, we pass to next event because it is timeout
+                if status == EventStatus.ACK_ERROR:
+                    if i < self.sender.batch_size() - 1:
+                        continue
+                    else:
+                        status = self.sender.read_event() 
+                        while(status == EventStatus.ACK_ERROR):
+                            status = self.sender.read_event()
 
                 # If it's a timeout, we break to for loop, move on to retransmission
                 if status == EventStatus.TIMEOUT:
@@ -162,16 +182,7 @@ class SimulatorGBN(Simulator):
                 elif status == EventStatus.NO_EVENT:
                     continue
 
-                # If it's a corrupted ACK: 
-                ### if that happens in the middle of sending, we pass to send next packet
-                ### if that happens for last packet, we pass to next event because it is timeout
-                elif status == EventStatus.ACK_ERROR:
-                    if i < maxSN - 1:
-                        continue
-                    else:
-                        currentEvent = self.eventScheduler.dequeue()
-                        self.sender.update_current_time(currentEvent.time)
-
                 # This is a successful ACK, so we count 1 more packet successfully transmitted
                 elif status == EventStatus.ACK:
                     duration -= 1
+                    break

@@ -238,6 +238,10 @@ class EndPoint(object):
         self.C = C
 
 
+    def setMaxSN(self, maxSN):
+        self.maxSN = maxSN
+
+
 
 class Receiver(EndPoint):
 
@@ -316,12 +320,12 @@ class StatsManager:
 
 class Simulator(object):
 
-    def __init__(self, H, l, C, maxSN, duration, statsManager):
+    def __init__(self, H, C, maxSN, duration, statsManager):
         self.statsManager = statsManager
         self.eventScheduler = EventScheduler()
         self.channelSide = ChannelSide(C)
         self.receiver = Receiver(H, C, maxSN, self.eventScheduler)
-        self.sender = Sender(H, l, C, maxSN, self.eventScheduler, self.statsManager)
+        self.sender = None # Sender class is defined differently for each protocol
         self.duration = duration # number of packets to be delivered successfully
 
 

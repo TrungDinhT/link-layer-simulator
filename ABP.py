@@ -68,6 +68,11 @@ class Sender(EndPoint):
 
 class SimulatorABP(Simulator):
     
+    def __init__(self, H, l, C, maxSN, duration, statsManager):
+        super(SimulatorABP, self).__init__(H, C, maxSN, duration, statsManager)
+        self.sender = Sender(H, l, C, maxSN, self.eventScheduler, self.statsManager)
+
+    
     def set_params(self, timeout, tau, BER):
         super(SimulatorABP, self).set_params(tau, BER)
         self.sender.reset(timeout)
@@ -84,18 +89,10 @@ class SimulatorABP(Simulator):
             if status == EventStatus.TIMEOUT: 
                 continue
 
-            # If it's a corrupted ACK, we dequeue ES until we get TIMEOUT
+            # If it's a corrupted ACK, we we pass to next event because it is timeout
             elif status == EventStatus.ACK_ERROR:
                 currentEvent = self.eventScheduler.dequeue()
-                while(currentEvent and currentEvent.type != EventType.TIMEOUT):
-                    currentEvent = self.eventScheduler.dequeue()
-                # This should not happen, so it's just a mechanism for sanity check
-                if currentEvent is None:
-                    print 'Error: there is no timeout in event'
-                    exit(1) 
-                # This event is a TIMEOUT, so we update current time and move on for retransmission
-                else:
-                    self.sender.update_current_time(currentEvent.time)
+                self.sender.update_current_time(currentEvent.time)
             
             # This is a successful ACK, so we count 1 more packet successfully transmitted
             elif status == EventStatus.ACK:
